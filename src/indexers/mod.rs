@@ -454,42 +454,7 @@ async fn search_eztv(
     Ok(results)
 }
 
-/// Pre-seeds default public indexers that require no API key or credentials.
-pub async fn seed_default_indexers(db: &SqlitePool) -> anyhow::Result<()> {
-    let defaults = [
-        ("ApiBay", "https://apibay.org", "apibay", "", true),
-        ("YTS", "https://yts.lt", "yts", "", true),
-        ("EZTV", "https://eztvx.to", "eztv", "", true),
-    ];
 
-    for (name, url, driver, api_key, enabled) in defaults {
-        let exists: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM indexers WHERE LOWER(name) = LOWER(?) OR url = ? LIMIT 1",
-        )
-        .bind(name)
-        .bind(url)
-        .fetch_optional(db)
-        .await?;
-
-        if exists.is_none() {
-            sqlx::query(
-                r#"
-                INSERT INTO indexers (name, url, driver, api_key, enabled)
-                VALUES (?, ?, ?, ?, ?)
-                "#,
-            )
-            .bind(name)
-            .bind(url)
-            .bind(driver)
-            .bind(api_key)
-            .bind(enabled)
-            .execute(db)
-            .await?;
-        }
-    }
-
-    Ok(())
-}
 
 // ============================================================================
 // File: src/indexers/mod.rs (inside `impl ReleaseCandidate`)
@@ -497,9 +462,6 @@ pub async fn seed_default_indexers(db: &SqlitePool) -> anyhow::Result<()> {
 // `max_episode_size_mb` by the number of episodes in that season when known.
 // ============================================================================
 impl ReleaseCandidate {
-    pub fn apply_profile(&mut self, profile: &QualityProfile, is_movie: bool) {
-        self.apply_profile_with_season_episodes(profile, is_movie, None);
-    }
 
     pub fn apply_profile_with_season_episodes(
         &mut self,

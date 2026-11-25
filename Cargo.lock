@@ -15,7 +15,6 @@ dependencies = [
  "futures",
  "html-escape",
  "librqbit",
- "quick-xml 0.36.2",
  "regex",
  "reqwest 0.12.28",
  "rust-embed",
@@ -2239,7 +2238,7 @@ dependencies = [
  "httparse",
  "librqbit-dualstack-sockets",
  "network-interface",
- "quick-xml 0.41.0",
+ "quick-xml",
  "reqwest 0.13.5",
  "serde",
  "serde_derive",
@@ -2760,16 +2759,6 @@ dependencies = [
  "wasi",
  "web-sys",
  "winapi",
-]
-
-[[package]]
-name = "quick-xml"
-version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
-dependencies = [
- "memchr",
- "serde",
 ]
 
 [[package]]

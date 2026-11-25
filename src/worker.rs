@@ -8,8 +8,8 @@ use tokio::sync::RwLock;
 
 use crate::downloaders::{DownloadClient, DownloadStatus};
 use crate::indexers::{search_all_indexers_with_profile, ReleaseCandidate};
-use crate::models::{QualityProfile, QualityProfileItem};
-use crate::parser::{parse_release_title, scan_directory, ParsedMedia};
+use crate::models::{QualityProfile, QualityProfileItem, Quality};
+use crate::parser::{parse_quality, parse_release_title, scan_directory, ParsedMedia, ScanSummary};
 
 // Video and subtitle extensions to import into the library destination folder.
 const VIDEO_EXTENSIONS: [&str; 6] = ["mkv", "mp4", "avi", "mov", "m4v", "webm"];
@@ -553,29 +553,6 @@ async fn has_any_video_in_dir(dir: &Path) -> anyhow::Result<bool> {
     Ok(!videos.is_empty())
 }
 
-/// Processes all completed active downloads.
-pub async fn process_completed_downloads(
-    db: &SqlitePool,
-    http: &Client,
-    tmdb_api_key: &Arc<RwLock<String>>,
-    downloader: &Arc<dyn DownloadClient>,
-    downloads_dir: &Path,
-    movies_dir: &Path,
-    shows_dir: &Path,
-) -> anyhow::Result<()> {
-    process_completed_downloads_for(
-        db,
-        http,
-        tmdb_api_key,
-        downloader,
-        downloads_dir,
-        movies_dir,
-        shows_dir,
-        None,
-    )
-    .await
-}
-
 /// Checks active downloads (optionally filtered to a single `info_hash`), moves completed
 /// video + subtitle files into `root_folder`, deletes remaining download files for that release,
 /// removes the torrent from the client, rescans `root_folder`, and removes the `downloads` row.
@@ -794,12 +771,36 @@ pub async fn process_completed_downloads_for(
                     }
                 }
 
+                // Detect quality from the torrent title if known so it isn't lost if the
+                // moved file on disk has a generic/stripped name, while never overwriting with Unknown.
+                let torrent_quality = if info.media_type == "movie" {
+                    Some(parse_quality(&record.title))
+                        .filter(|&q| q != Quality::Unknown)
+                        .map(|q| q.as_str().to_string())
+                } else {
+                    None
+                };
+
                 let tmdb_key = tmdb_api_key.read().await.clone();
                 if let Err(scan_err) = scan_directory(db, http, &tmdb_key, &root_str).await {
                     eprintln!(
                         "[IMPORT] Rescan warning for '{}': {}",
                         root_str, scan_err
                     );
+                }
+
+                if let Some(ref q_str) = torrent_quality {
+                    sqlx::query(
+                        r#"
+                        UPDATE media_items
+                        SET current_quality = COALESCE(?, current_quality)
+                        WHERE id = ?
+                        "#,
+                    )
+                    .bind(q_str)
+                    .bind(media_id)
+                    .execute(db)
+                    .await?;
                 }
             }
         } else {
@@ -824,12 +825,20 @@ pub async fn process_completed_downloads_for(
     Ok(())
 }
 
+fn normalize_match_key(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
 /// Resolves the specific file or torrent directory inside `downloads_dir`.
 fn resolve_download_source(
     downloads_dir: &Path,
     live: &DownloadStatus,
     record_title: &str,
 ) -> Option<PathBuf> {
+    // 1. Exact matches on live download name or record title
     let by_live_name = downloads_dir.join(&live.name);
     if by_live_name.exists() {
         return Some(by_live_name);
@@ -838,6 +847,63 @@ fn resolve_download_source(
     let by_record_title = downloads_dir.join(record_title);
     if by_record_title.exists() {
         return Some(by_record_title);
+    }
+
+    // 2. Exact match with common video extensions appended
+    for candidate_name in [&live.name, record_title] {
+        for ext in VIDEO_EXTENSIONS {
+            let with_ext = downloads_dir.join(format!("{}.{}", candidate_name, ext));
+            if with_ext.exists() {
+                return Some(with_ext);
+            }
+        }
+    }
+
+    // 3. Normalized alphanumeric comparison against entries directly in `downloads_dir`
+    //    (handles sanitized characters like `:` -> `_` or dots/spaces differences).
+    let target_keys: Vec<String> = [&live.name, record_title]
+        .into_iter()
+        .map(|s| normalize_match_key(s))
+        .filter(|k| !k.is_empty())
+        .collect();
+
+    let entries: Vec<PathBuf> = std::fs::read_dir(downloads_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .collect();
+
+    for path in &entries {
+        let Some(stem_or_name) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let entry_key = normalize_match_key(stem_or_name);
+        if entry_key.is_empty() {
+            continue;
+        }
+
+        if target_keys
+            .iter()
+            .any(|tk| tk.contains(&entry_key) || entry_key.contains(tk))
+        {
+            return Some(path.clone());
+        }
+    }
+
+    // 4. Last resort for root-level single video files when nothing else matched
+    let root_videos: Vec<PathBuf> = entries
+        .into_iter()
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    if root_videos.len() == 1 {
+        return root_videos.into_iter().next();
     }
 
     None

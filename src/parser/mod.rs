@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use walkdir::WalkDir;
 
 use crate::metadata::{fetch_tv_episodes, search_tmdb};
-use crate::models::{Quality, QualityProfile};
+use crate::models::{Quality};
 
 const VIDEO_EXTENSIONS: &[&str] = &["mkv", "mp4", "avi", "mov", "wmv", "m4v", "webm", "ts"];
 
@@ -36,6 +36,7 @@ pub enum ParsedMedia {
     },
 }
 
+// CLEANUP - quality profiles may not be deleted
 // Handle when quality profiles are removed
 async fn resolve_default_quality_profile_id(db: &SqlitePool) -> anyhow::Result<Option<i64>> {
     let profile_id: Option<i64> = sqlx::query_scalar(
@@ -230,7 +231,6 @@ async fn refresh_tv_series_status(db: &SqlitePool, media_id: i64) -> anyhow::Res
 }
 
 // ============================================================================
-// File: src/api/mod.rs (or whichever module defines `scan_directory`)
 // Scans `root_path` for video files, skips `search_tmdb` when a matching item
 // already exists in `media_items`, marks found files as `'available'`, and
 // flips externally removed files to `'requested'`.
@@ -280,6 +280,24 @@ pub async fn scan_directory(
 
         match parsed {
             ParsedMedia::Movie { title, year } => {
+                // Prioritize the filename; fall back to the parent folder name if Unknown.
+                // Ignore `Quality::Unknown` so existing `current_quality` is never overwritten.
+                let file_quality = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(parse_quality)
+                    .filter(|&q| q != Quality::Unknown);
+
+                let detected_quality: Option<Quality> = file_quality.or_else(|| {
+                    path.parent()
+                        .and_then(|p| p.file_name())
+                        .and_then(|n| n.to_str())
+                        .map(parse_quality)
+                        .filter(|&q| q != Quality::Unknown)
+                });
+
+                let current_quality: Option<&str> = detected_quality.map(|q| q.as_str());
+
                 // Fast path 1: Check if `media_items` already has this movie by file path
                 // (`root_folder` stores the movie file path) or by title (+ year if present).
                 let existing_movie: Option<(i64, String)> = if let Some(y) = year {
@@ -314,16 +332,18 @@ pub async fn scan_directory(
                 };
 
                 if let Some((movie_id, _existing_title)) = existing_movie {
-                    // Already in `media_items` — skip `search_tmdb` and just mark 'available'.
+                    // Already in `media_items` — skip `search_tmdb` and update status, path, and quality.
                     sqlx::query(
                         r#"
                         UPDATE media_items
                         SET status = 'available',
-                            root_folder = ?
+                            root_folder = ?,
+                            current_quality = COALESCE(?, current_quality)
                         WHERE id = ?
                         "#,
                     )
                     .bind(&full_path_str)
+                    .bind(current_quality)
                     .bind(movie_id)
                     .execute(db)
                     .await?;
@@ -343,11 +363,12 @@ pub async fn scan_directory(
                 if let Some(tmdb) = best_match {
                     sqlx::query(
                         r#"
-                        INSERT INTO media_items (tmdb_id, media_type, title, year, overview, poster_path, status, root_folder, quality_profile_id)
-                        VALUES (?, 'movie', ?, ?, ?, ?, 'available', ?, ?)
+                        INSERT INTO media_items (tmdb_id, media_type, title, year, overview, poster_path, status, root_folder, quality_profile_id, current_quality)
+                        VALUES (?, 'movie', ?, ?, ?, ?, 'available', ?, ?, ?)
                         ON CONFLICT(tmdb_id) DO UPDATE SET
                             status = 'available',
-                            root_folder = excluded.root_folder
+                            root_folder = excluded.root_folder,
+                            current_quality = COALESCE(excluded.current_quality, media_items.current_quality)
                         "#,
                     )
                     .bind(tmdb.id)
@@ -357,6 +378,7 @@ pub async fn scan_directory(
                     .bind(&tmdb.poster_path)
                     .bind(&full_path_str)
                     .bind(profile_id)
+                    .bind(current_quality)
                     .execute(db)
                     .await?;
 
@@ -607,7 +629,8 @@ pub async fn scan_directory(
                 sqlx::query(
                     r#"
                     UPDATE media_items
-                    SET status = 'requested'
+                    SET status = 'requested',
+                        current_quality = NULL
                     WHERE id = ?
                     "#,
                 )
@@ -765,37 +788,4 @@ pub fn parse_quality(title: &str) -> Quality {
     }
 
     Quality::Unknown
-}
-
-/// Checks if a release matches the given QualityProfile and size constraints.
-pub fn evaluate_release(
-    profile: &QualityProfile,
-    release_title: &str,
-    size_bytes: Option<u64>,
-    is_movie: bool,
-) -> Option<i32> {
-    let detected = parse_quality(release_title);
-    let detected_str = detected.as_str();
-
-    let rule = profile
-        .items
-        .iter()
-        .find(|item| item.quality == detected_str && item.allowed)?;
-
-    if let Some(bytes) = size_bytes {
-        let size_mb = (bytes as f64 / (1024.0 * 1024.0)).ceil() as i64;
-        let max_mb = if is_movie {
-            rule.max_movie_size_mb
-        } else {
-            rule.max_episode_size_mb
-        };
-
-        if let Some(limit) = max_mb {
-            if size_mb > limit {
-                return None; 
-            }
-        }
-    }
-
-    Some(rule.rank)
 }

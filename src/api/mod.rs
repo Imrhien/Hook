@@ -42,15 +42,6 @@ pub struct TmdbSettingsResponse {
     pub masked_key: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub struct AddIndexerPayload {
-    pub name: String,
-    pub url: String,
-    pub driver: String,
-    pub api_key: String,
-    pub enabled: bool,
-}
-
 fn default_true() -> bool {
     true
 }
@@ -214,7 +205,7 @@ pub fn router() -> Router<AppState> {
         .route("/library/:id/quality-profile", patch(handle_assign_media_profile))
         .route("/wanted", get(handle_wanted))
         .route("/wanted/search", post(handle_trigger_wanted_search))
-        .route("/indexers", get(handle_list_indexers).post(handle_add_indexer))
+        .route("/indexers", get(handle_list_indexers))
         .route("/indexers/:id", put(handle_update_indexer).delete(handle_delete_indexer),)
         .route("/releases", get(handle_search_releases))
         .route("/downloads", get(handle_list_downloads).post(handle_start_download))
@@ -950,22 +941,6 @@ async fn handle_list_indexers(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(list))
-}
-
-async fn handle_add_indexer(
-    State(state): State<AppState>,
-    Json(payload): Json<AddIndexerPayload>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    sqlx::query("INSERT INTO indexers (name, url, driver, api_key, enabled) VALUES (?, ?, ?, ?, 1)")
-        .bind(&payload.name)
-        .bind(&payload.url)
-        .bind(&payload.driver)
-        .bind(&payload.api_key)
-        .execute(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(StatusCode::CREATED)
 }
 
 async fn handle_update_indexer(

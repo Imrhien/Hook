@@ -27,10 +27,6 @@ walkdir = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# `quick-xml`: Parses/serializes XML — very handy for Torznab/Newznab or RSS
-# indexer feeds that return XML rather than JSON.
-quick-xml = { version = "0.36", features = ["serialize"] }
-
 # --- Database (SQLite) ---
 # `sqlx`: Async SQL toolkit for SQLite. `macros` enables compile-time checked
 # queries (`query!` / `query_as!`) when configured with your DB.
