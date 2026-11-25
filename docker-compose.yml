@@ -1,0 +1,20 @@
+services:
+  hook:
+    build: .
+    ports:
+      - "1337:1337"
+    environment:
+      - DATABASE_URL=sqlite:/app/data/hook.db?mode=rwc
+      - MOVIES_DIR=/movies
+      - SHOWS_DIR=/shows
+      - DOWNLOAD_DIR=/downloads
+      - TMDB_API_KEY=${TMDB_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - /mnt/nas/Movies:/library/movies
+      - /mnt/nas/TV Shows:/library/shows
+      - /mnt/nas/Downloads:/library/downloads
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun

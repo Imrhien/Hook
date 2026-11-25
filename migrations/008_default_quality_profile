@@ -1,0 +1,11 @@
+-- ============================================================================
+-- File: migrations/0007_default_quality_profile.sql
+-- Adds `is_default` flag to `quality_profiles` and sets 'HD' as the initial
+-- out-of-the-box default profile.
+-- ============================================================================
+ALTER TABLE quality_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+
+UPDATE quality_profiles
+SET is_default = 1
+WHERE LOWER(name) = 'hd'
+  AND NOT EXISTS (SELECT 1 FROM quality_profiles WHERE is_default = 1);

@@ -1,0 +1,3 @@
+-- Add current_quality to track the quality tier (e.g. "Bluray-1080p") of what is
+-- currently present on disk for this media item. NULL means no file is tracked yet.
+ALTER TABLE media_items ADD COLUMN current_quality TEXT;

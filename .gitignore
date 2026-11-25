@@ -1,6 +1,6 @@
 /target
-/downloads
-/movies
-/tv
+/library
+/web
 Notes.md
 todo.md
+.env

@@ -1,0 +1,2 @@
+-- Add nullable IMDb ID column to media_items for indexer searches
+ALTER TABLE media_items ADD COLUMN imdb_id INTEGER;

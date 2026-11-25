@@ -1,0 +1,1 @@
+ALTER TABLE indexers ADD COLUMN driver TEXT NOT NULL DEFAULT 'apibay';

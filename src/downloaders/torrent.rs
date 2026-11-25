@@ -1,14 +1,20 @@
 use async_trait::async_trait;
-use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions};
+use librqbit::{
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions,
+    SessionPersistenceConfig,
+};
 use reqwest::{redirect::Policy, Client};
 use std::{
     cell::RefCell,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
 };
+use tokio::sync::mpsc;
+use std::collections::HashSet;
+use std::sync::Mutex;
 
 use super::{DownloadClient, DownloadStatus};
 use crate::vpn::UserspaceVpnManager;
@@ -18,7 +24,12 @@ pub struct RqbitDownloader {
     http: Client,
     vpn_enabled: Arc<AtomicBool>,
     vpn_manager: UserspaceVpnManager,
+    completion_tx: mpsc::UnboundedSender<String>,
+    completion_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+    watched_hashes: Arc<Mutex<HashSet<String>>>,
 }
+
+
 
 impl RqbitDownloader {
     pub async fn new(
@@ -29,7 +40,20 @@ impl RqbitDownloader {
     ) -> anyhow::Result<Self> {
         tokio::fs::create_dir_all(&download_dir).await?;
 
-        let mut opts = SessionOptions::default();
+        let session_dir = download_dir
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("rqbit-session");
+        tokio::fs::create_dir_all(&session_dir).await?;
+
+        let mut opts = SessionOptions {
+            fastresume: true,
+            persistence: Some(SessionPersistenceConfig::Json {
+                folder: Some(session_dir),
+            }),
+            ..Default::default()
+        };
+
         if vpn_enabled {
             if let Some(iface) = interface_name {
                 println!("[VPN] Binding BitTorrent sockets strictly to '{}'", iface);
@@ -44,11 +68,17 @@ impl RqbitDownloader {
             .redirect(Policy::none())
             .build()?;
 
+        // <-- HERE: create the channel right before returning Self
+        let (completion_tx, completion_rx) = mpsc::unbounded_channel();
+
         Ok(Self {
             session,
             http,
             vpn_enabled: Arc::new(AtomicBool::new(vpn_enabled)),
             vpn_manager,
+            completion_tx,
+            completion_rx: Mutex::new(Some(completion_rx)),
+            watched_hashes: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 }
@@ -158,5 +188,10 @@ impl DownloadClient for RqbitDownloader {
 
         self.session.delete(hash, delete_files).await?;
         Ok(())
+    }
+
+    //allows Rqbit to notify Hook when a download finishes
+    fn take_completion_receiver(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+        RqbitDownloader::take_completion_receiver(self)
     }
 }

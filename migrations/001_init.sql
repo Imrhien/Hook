@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tmdb_id INTEGER NOT NULL UNIQUE,
     tvdb_id INTEGER,
+    imdb_id INTEGER,
     media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'tv')),
     title TEXT NOT NULL,
     year INTEGER,
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     poster_path TEXT,
     status TEXT NOT NULL DEFAULT 'requested', -- requested, monitored, downloading, available
     root_folder TEXT,
+    current_quality TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

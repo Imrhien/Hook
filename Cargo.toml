@@ -1,37 +1,98 @@
 [package]
 name = "Hook"
 version = "0.1.0"
-edition = "2021"
+edition = "2021" # Rust language edition; controls syntax & standard library behavior
 
 [dependencies]
-# Web framework & async runtime
+# --- Web framework & async runtime ---
+# `axum`: Modular web framework for building your REST/JSON API endpoints
+# (search, quality profiles, indexers, library scan, VPN upload, torrent status).
 axum = "0.7"
+
+# `tokio`: The async runtime that executes non-blocking I/O (HTTP requests,
+# torrent network traffic, async TUN packets, timers) concurrently.
 tokio = { version = "1", features = ["full"] }
+
+# `tower-http`: Middleware for `axum` — `cors` helps during Svelte dev server
+# workflows, and `fs` helps serve static files / media paths if needed.
 tower-http = { version = "0.5", features = ["cors", "fs"] }
+
+# `walkdir`: Recursively walks directories to scan existing movies/TV folders,
+# find video files, check qualities, and spot missing episodes.
 walkdir = "2"
 
-# Serialization (JSON / XML)
+# --- Serialization (JSON / XML) ---
+# `serde` & `serde_json`: Converts Rust structs <-> JSON for TMDB API responses,
+# frontend API payloads, and stored profile/indexer configs.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# `quick-xml`: Parses/serializes XML — very handy for Torznab/Newznab or RSS
+# indexer feeds that return XML rather than JSON.
 quick-xml = { version = "0.36", features = ["serialize"] }
 
-# Database (SQLite)
+# --- Database (SQLite) ---
+# `sqlx`: Async SQL toolkit for SQLite. `macros` enables compile-time checked
+# queries (`query!` / `query_as!`) when configured with your DB.
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros"] }
 
-# HTTP Client & Regex
+# --- HTTP Client & Regex ---
+# `reqwest`: Async HTTP client for TMDB API calls and indexer queries.
+# `default-features = false` + `rustls-tls` avoids needing system OpenSSL
+# libraries, which makes Docker builds much cleaner.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# `regex`: Parses messy torrent release names (resolution like 1080p/2160p,
+# source like WEB-DL/BluRay, codec, season/episode tags like S01E02).
 regex = "1"
 
-# Built-in BitTorrent client & Frontend embedding
+# --- Built-in BitTorrent client & Frontend embedding ---
+# `librqbit`: Pure-Rust BitTorrent client library so Hook can download
+# torrents/magnets directly without running a separate torrent daemon.
 librqbit = "9.1"
+
+# `rust-embed`: Compiles your built Svelte static files directly into the Rust
+# binary so shipping a single executable/Docker image is super clean.
 rust-embed = "8"
+
+# `async-trait`: Lets you write `async fn` inside Rust traits (useful for
+# clean interfaces like an `Indexer` trait or `MediaSource` trait).
 async-trait = "0.1"
+
+# `anyhow`: Ergonomic error type (`anyhow::Result<T>`) great for application
+# code and background tasks where you want rich error context with `.context(...)`.
 anyhow = "1"
 
-#VPN
+# --- VPN ---
+# `boringtun`: Cloudflare's userspace WireGuard implementation in Rust — handles
+# WireGuard cryptography/handshake state without needing a kernel WG module.
 boringtun = "0.6"
+
+# `tun`: Creates and manages a virtual network interface (TUN device) with
+# async Tokio support so packets can flow through the tunnel.
 tun = { version = "0.7", features = ["async"] }
+
+# `base64`: Decodes/encodes WireGuard keys and config values encoded in base64.
 base64 = "0.22"
 
-# Metadata
+# --- Metadata ---
+# `futures`: Extra async utilities (like joining/selecting futures or stream
+# combinators) alongside `tokio`.
 futures = "0.3"
+
+# --- Environment file ---
+# `dotenvy`: Loads variables from a `.env` file (such as `TMDB_API_KEY` or
+# `DATABASE_URL`) during local development.
+dotenvy = "0.15"
+
+# --- UUID ---
+# `uuid`: Generates unique IDs (`v4`) for jobs, profiles, indexers, or tasks.
+uuid = { version = "1", features = ["v4"] }
+
+# --- Sanitise filenames for importer ---
+# `sanitize-filename`: Strips/replaces invalid or unsafe characters when
+# renaming/moving downloaded media into clean Movie and TV Show folders.
+sanitize-filename = "0.6.0"
+
+# --- Re-encode html escapes ---
+html-escape = "0.3"

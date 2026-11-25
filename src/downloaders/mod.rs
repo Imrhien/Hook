@@ -2,6 +2,7 @@ pub mod torrent;
 
 use async_trait::async_trait;
 use serde::Serialize;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadStatus {
@@ -14,12 +15,12 @@ pub struct DownloadStatus {
 
 #[async_trait]
 pub trait DownloadClient: Send + Sync {
-    /// Starts a download from a magnet URI or .torrent/.nzb URL and returns its unique ID (e.g., info_hash)
     async fn add_release(&self, url: &str) -> anyhow::Result<String>;
-
-    /// Returns live progress for all active downloads in this client
     async fn list_downloads(&self) -> anyhow::Result<Vec<DownloadStatus>>;
-
-    /// Removes a download (and optionally deletes its files from disk)
     async fn remove_download(&self, id: &str, delete_files: bool) -> anyhow::Result<()>;
+
+    /// Takes the completion notification channel once if supported by the client.
+    fn take_completion_receiver(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+        None
+    }
 }

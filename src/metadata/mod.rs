@@ -69,6 +69,13 @@ struct TmdbRawEpisode {
     air_date: Option<String>,
 }
 
+// Matches the JSON returned by TMDB's `/tv/{id}/external_ids` or `/movie/{id}/external_ids` endpoint.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TmdbExternalIds {
+    imdb_id: Option<String>,
+}
+
 pub async fn search_tmdb(
     client: &Client,
     api_key: &str,
@@ -206,3 +213,53 @@ pub async fn fetch_tv_episodes(
     );
 
     Ok(all_episodes)
+}
+
+/// Fetches the IMDb ID from TMDB for a movie or TV show, strips any `"tt"` prefix,
+/// and returns it as a numeric `Option<i64>` (for example `"tt10590066"` -> `Some(10590066)`).
+pub async fn fetch_imdb_id(
+    client: &Client,
+    api_key: &str,
+    media_type: &str,
+    tmdb_id: i64,
+) -> anyhow::Result<Option<i64>> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Ok(None);
+    }
+
+    let url = format!("{}/{}/{}/external_ids", TMDB_BASE_URL, media_type, tmdb_id);
+
+    // Match the same TMDB auth convention used elsewhere in `src/metadata/mod.rs`:
+    // long tokens use Bearer auth; shorter v3 keys use the `api_key` query string.
+    let mut req = client.get(&url).header("Accept", "application/json");
+    req = if key.len() > 40 {
+        req.bearer_auth(key)
+    } else {
+        req.query(&[("api_key", key)])
+    };
+
+    let response = req.send().await?;
+    let status = response.status();
+    let raw_text = response.text().await?;
+
+    if !status.is_success() {
+        anyhow::bail!("TMDB external_ids HTTP {} at {}: {}", status, url, raw_text);
+    }
+
+    let parsed: TmdbExternalIds = serde_json::from_str(&raw_text)
+        .map_err(|e| anyhow::anyhow!("External IDs parse error: {} | Body: {}", e, raw_text))?;
+
+    // Strip leading "tt" or "TT", trim whitespace, and parse the digits into `i64`.
+    let parsed_id = parsed.imdb_id.and_then(|raw| {
+        let trimmed = raw.trim();
+        let without_prefix = trimmed
+            .strip_prefix("tt")
+            .or_else(|| trimmed.strip_prefix("TT"))
+            .unwrap_or(trimmed);
+
+        without_prefix.trim().parse::<i64>().ok()
+    });
+
+    Ok(parsed_id)
+}

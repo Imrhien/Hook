@@ -1,7 +1,8 @@
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use sqlx::{FromRow, SqlitePool};
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quality {
     Unknown,
     SDTV,
@@ -17,8 +18,27 @@ pub enum Quality {
     Remux1080p,
     Remux2160p,
 }
+impl Serialize for Quality {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
 
+impl<'de> Deserialize<'de> for Quality {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Quality::from_str(&s))
+    }
+}
 impl Quality {
+    /// Canonical string label stored in SQLite (`quality_profile_items.quality`)
+    /// and matched by `parser::evaluate_release`.
     pub fn as_str(&self) -> &'static str {
         match self {
             Quality::Unknown => "Unknown",
@@ -55,7 +75,7 @@ impl Quality {
         }
     }
 
-    /// Useful for populating the UI builder with all available quality tiers
+    /// Returns all quality tiers ordered roughly from highest quality/rank to lowest.
     pub fn all_default_order() -> Vec<Quality> {
         vec![
             Quality::Remux2160p,
@@ -75,6 +95,14 @@ impl Quality {
     }
 }
 
+impl FromStr for Quality {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Quality::from_str(s))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct QualityProfileItem {
     pub quality: String,
@@ -84,7 +112,7 @@ pub struct QualityProfileItem {
     pub max_episode_size_mb: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QualityProfile {
     pub id: i64,
     pub name: String,
