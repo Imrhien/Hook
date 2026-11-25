@@ -1126,9 +1126,7 @@ pub async fn start_background_worker(
     downloader: Arc<dyn DownloadClient>,
 ) {
     let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(60));
-    let mut wanted_search_timer =
-        tokio::time::interval(std::time::Duration::from_secs(30 * 60));
-    let mut completion_rx = downloader.take_completion_receiver();
+    let mut wanted_search_timer = tokio::time::interval(std::time::Duration::from_secs(3600));
 
     let downloads_dir = PathBuf::from(
         std::env::var("DOWNLOAD_DIR").unwrap_or_else(|_| "./library/downloads".to_string()),
@@ -1141,85 +1139,26 @@ pub async fn start_background_worker(
     );
 
     loop {
-        match completion_rx.as_mut() {
-            Some(rx) => {
-                tokio::select! {
-                    maybe_hash = rx.recv() => {
-                        match maybe_hash {
-                            Some(completed_hash) => {
-                                println!(
-                                    "[WORKER] Completion event received for torrent '{}'",
-                                    completed_hash
-                                );
-                                if let Err(e) = process_completed_downloads_for(
-                                    &db,
-                                    &http,
-                                    &tmdb_api_key,
-                                    &downloader,
-                                    &downloads_dir,
-                                    &movies_dir,
-                                    &shows_dir,
-                                    Some(&completed_hash),
-                                )
-                                .await
-                                {
-                                    eprintln!(
-                                        "[WORKER] Error processing completed download '{}': {}",
-                                        completed_hash, e
-                                    );
-                                }
-                            }
-                            None => {
-                                completion_rx = None;
-                            }
-                        }
-                    }
-                    _ = interval_timer.tick() => {
-                        if let Err(e) = process_completed_downloads_for(
-                            &db,
-                            &http,
-                            &tmdb_api_key,
-                            &downloader,
-                            &downloads_dir,
-                            &movies_dir,
-                            &shows_dir,
-                            None,
-                        )
-                        .await
-                        {
-                            eprintln!("[WORKER] Error processing completed downloads: {}", e);
-                        }
-                    }
-                    _ = wanted_search_timer.tick() => {
-                        if let Err(e) = run_automated_wanted_search(&db, &http, &downloader).await {
-                            eprintln!("[WORKER] Error running automated wanted search: {}", e);
-                        }
-                    }
+        tokio::select! {
+            _ = interval_timer.tick() => {
+                if let Err(e) = process_completed_downloads_for(
+                    &db,
+                    &http,
+                    &tmdb_api_key,
+                    &downloader,
+                    &downloads_dir,
+                    &movies_dir,
+                    &shows_dir,
+                    None,
+                )
+                .await
+                {
+                    eprintln!("[WORKER] Error processing completed downloads: {}", e);
                 }
             }
-            None => {
-                tokio::select! {
-                    _ = interval_timer.tick() => {
-                        if let Err(e) = process_completed_downloads_for(
-                            &db,
-                            &http,
-                            &tmdb_api_key,
-                            &downloader,
-                            &downloads_dir,
-                            &movies_dir,
-                            &shows_dir,
-                            None,
-                        )
-                        .await
-                        {
-                            eprintln!("[WORKER] Error processing completed downloads: {}", e);
-                        }
-                    }
-                    _ = wanted_search_timer.tick() => {
-                        if let Err(e) = run_automated_wanted_search(&db, &http, &downloader).await {
-                            eprintln!("[WORKER] Error running automated wanted search: {}", e);
-                        }
-                    }
+            _ = wanted_search_timer.tick() => {
+                if let Err(e) = run_automated_wanted_search(&db, &http, &downloader).await {
+                    eprintln!("[WORKER] Error running automated wanted search: {}", e);
                 }
             }
         }

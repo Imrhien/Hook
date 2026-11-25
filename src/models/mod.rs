@@ -1,5 +1,5 @@
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use sqlx::{FromRow, SqlitePool};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sqlx::FromRow;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -12,9 +12,6 @@ use std::{
         Arc,
     },
 };
-use tokio::sync::mpsc;
-use std::collections::HashSet;
-use std::sync::Mutex;
 
 use super::{DownloadClient, DownloadStatus};
 use crate::vpn::UserspaceVpnManager;
@@ -24,12 +21,7 @@ pub struct RqbitDownloader {
     http: Client,
     vpn_enabled: Arc<AtomicBool>,
     vpn_manager: UserspaceVpnManager,
-    completion_tx: mpsc::UnboundedSender<String>,
-    completion_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
-    watched_hashes: Arc<Mutex<HashSet<String>>>,
 }
-
-
 
 impl RqbitDownloader {
     pub async fn new(
@@ -68,17 +60,11 @@ impl RqbitDownloader {
             .redirect(Policy::none())
             .build()?;
 
-        // <-- HERE: create the channel right before returning Self
-        let (completion_tx, completion_rx) = mpsc::unbounded_channel();
-
         Ok(Self {
             session,
             http,
             vpn_enabled: Arc::new(AtomicBool::new(vpn_enabled)),
             vpn_manager,
-            completion_tx,
-            completion_rx: Mutex::new(Some(completion_rx)),
-            watched_hashes: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 }
@@ -188,10 +174,5 @@ impl DownloadClient for RqbitDownloader {
 
         self.session.delete(hash, delete_files).await?;
         Ok(())
-    }
-
-    //allows Rqbit to notify Hook when a download finishes
-    fn take_completion_receiver(&self) -> Option<mpsc::UnboundedReceiver<String>> {
-        RqbitDownloader::take_completion_receiver(self)
     }
 }
